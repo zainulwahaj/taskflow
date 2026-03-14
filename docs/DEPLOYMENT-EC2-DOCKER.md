@@ -1,6 +1,6 @@
 # TaskFlow – Deploy on EC2 with Docker Compose (Assignment Guide)
 
-**Assignment:** Deploy the TaskFlow MERN stack (React frontend, Node.js/Express backend, MongoDB) on an AWS EC2 instance using Docker Compose. The guide is structured for submission with placeholder slots for required screenshots.
+**Assignment:** Deploy the TaskFlow MERN stack (React frontend, Node.js/Express backend, MongoDB) on an AWS EC2 instance using Docker Compose. This guide uses **Ubuntu Server** and is structured for submission with placeholder slots for required screenshots.
 
 ---
 
@@ -44,7 +44,7 @@
 1. In AWS Console go to **EC2** → **Instances** → **Launch instance**.
 2. Set:
    - **Name:** `taskflow-app` (or any name).
-   - **AMI:** Amazon Linux 2023 (or Ubuntu 22.04 LTS).
+   - **AMI:** **Ubuntu Server 22.04 LTS** (or 24.04 LTS).
    - **Instance type:** `t2.micro` (free tier) or `t3.small` for smoother Docker builds.
    - **Key pair:** Create new or use existing; **download the `.pem` file** and keep it secure.
    - **Network:** Default VPC (or your chosen VPC).
@@ -69,38 +69,20 @@
 
 ## 3. Connect to EC2 and Install Docker
 
-### 3.1 SSH into the Instance
+### 3.1 SSH into the Instance (Ubuntu)
 
 From your local machine (replace with your key path and public IP):
 
 ```bash
 chmod 400 /path/to/your-key.pem
-ssh -i /path/to/your-key.pem ec2-user@YOUR_EC2_PUBLIC_IP
+ssh -i /path/to/your-key.pem ubuntu@YOUR_EC2_PUBLIC_IP
 ```
 
-- For **Amazon Linux 2023**, user is usually `ec2-user`.
-- For **Ubuntu**, user is usually `ubuntu`:  
-  `ssh -i /path/to/your-key.pem ubuntu@YOUR_EC2_PUBLIC_IP`
-
-**Screenshot placeholder:** [Screenshot: Terminal after successful `ssh` login, showing the EC2 prompt (e.g. `[ec2-user@ip-xxx-xxx-xxx-xxx ~]$`).]
+**Screenshot placeholder:** [Screenshot: Terminal after successful `ssh` login, showing the EC2 prompt (e.g. `ubuntu@ip-172-31-xx-xx:~$`).]
 
 ---
 
-### 3.2 Update System and Install Docker
-
-**Amazon Linux 2023:**
-
-```bash
-sudo dnf update -y
-sudo dnf install -y docker
-sudo systemctl start docker
-sudo systemctl enable docker
-sudo usermod -aG docker $USER
-```
-
-Log out and log back in (or run `newgrp docker`) so the `docker` group takes effect.
-
-**Ubuntu 22.04:**
+### 3.2 Update System and Install Docker (Ubuntu)
 
 ```bash
 sudo apt update -y
@@ -116,21 +98,13 @@ sudo systemctl enable docker
 sudo usermod -aG docker $USER
 ```
 
-Log out and log back in (or `newgrp docker`).
+Log out and log back in (or run `newgrp docker`) so the `docker` group takes effect. If you use `sudo docker compose` you can skip the re-login.
 
 **Screenshot placeholder:** [Screenshot: Terminal showing `docker --version` and `docker compose version` after installation.]
 
 ---
 
 ### 3.3 Install Git (if not present)
-
-**Amazon Linux 2023:**
-
-```bash
-sudo dnf install -y git
-```
-
-**Ubuntu:**
 
 ```bash
 sudo apt install -y git
@@ -182,14 +156,53 @@ Save and exit (e.g. Ctrl+O, Enter, Ctrl+X in `nano`).
 
 ## 5. Build and Run with Docker Compose
 
-### 5.1 Build and Start All Services
+### 5.0 (If needed) Free port 5000
 
-From the project root (`eman`):
+The TaskFlow backend uses port **5000**. If you see `address already in use` (e.g. another app like Flask is using 5000), free the port first.
+
+**Find what is using port 5000:**
 
 ```bash
-docker compose build --no-cache
-docker compose up -d
+sudo lsof -i :5000
 ```
+
+Or:
+
+```bash
+sudo ss -tlnp | grep 5000
+```
+
+Note the **PID** (process ID) from the output. Then stop that process:
+
+```bash
+sudo kill PID
+```
+
+Replace `PID` with the number (e.g. `sudo kill 1234`). If it does not exit, use `sudo kill -9 PID`.
+
+If the app is run by systemd (e.g. a Flask or Gunicorn service), list and stop it:
+
+```bash
+sudo systemctl list-units --type=service --state=running
+sudo systemctl stop SERVICE_NAME
+```
+
+Then run `docker compose up -d` again. If you prefer to keep the other app on 5000, see [Troubleshooting](#8-troubleshooting) for using a different port for TaskFlow.
+
+**Screenshot placeholder:** [Screenshot: Terminal showing `sudo lsof -i :5000` (or `ss`) and then `sudo kill PID` before running `docker compose up -d` successfully.]
+
+---
+
+### 5.1 Build and Start All Services
+
+From the project root (e.g. `~/taskflow` or `~/eman`):
+
+```bash
+sudo docker compose build --no-cache
+sudo docker compose up -d
+```
+
+If your user is in the `docker` group (after `newgrp docker` or re-login), you can omit `sudo` and use `docker compose` instead.
 
 This will:
 
@@ -208,16 +221,16 @@ This will:
 docker compose ps
 ```
 
-You should see three services: `frontend`, `backend`, `mongodb`, all with state “running”.
+You should see three services: `frontend`, `backend`, `mongodb`, all with state “running”. If you use `sudo` for Docker, run `sudo docker compose ps`.
 
-**Screenshot placeholder:** [Screenshot: Output of `docker compose ps` showing all three services and their ports.]
+**Screenshot placeholder:** [Screenshot: Output of `docker compose ps` (or `sudo docker compose ps`) showing all three services and their ports.]
 
 ---
 
 ### 5.3 Optional: View Logs
 
 ```bash
-docker compose logs -f
+sudo docker compose logs -f
 ```
 
 Press Ctrl+C to stop following. Use `docker compose logs backend` or `docker compose logs frontend` to inspect a single service.
@@ -298,35 +311,44 @@ Then you can log in with `alice@example.com` or `bob@example.com` (password: `pa
 
 | Issue | What to check |
 |------|----------------|
-| Cannot SSH | Key permissions (`chmod 400 .pem`), correct user (`ec2-user` / `ubuntu`), Security Group allows SSH (22). |
-| “Connection refused” on port 80 | Security Group must allow inbound HTTP (80). Run `docker compose ps` and `docker compose logs frontend`. |
-| Frontend loads but API fails | Ensure `CLIENT_URL` in `.env` uses `http://YOUR_EC2_PUBLIC_IP` (no trailing slash). Restart: `docker compose down && docker compose up -d`. |
-| Backend “MongoDB connection error” | Ensure `mongodb` container is running (`docker compose ps`). Backend uses `MONGO_URI=mongodb://mongodb:27017/taskflow` in compose; no change needed unless you use external DB. |
-| Need to rebuild after code change | On EC2: `git pull`, then `docker compose build --no-cache && docker compose up -d`. |
+| Cannot SSH | Key permissions (`chmod 400 .pem`), correct user **`ubuntu`** on Ubuntu Server, Security Group allows SSH (22). |
+| **Port 5000 already in use** | Another app (e.g. Flask) is using 5000. Find it: `sudo lsof -i :5000` or `sudo ss -tlnp \| grep 5000`. Stop with `sudo kill PID` or stop the service: `sudo systemctl stop SERVICE_NAME`. Then run `sudo docker compose up -d` again. To keep the other app on 5000, change TaskFlow’s backend port in `docker-compose.yml` (e.g. `5001:5000`) and in `client/nginx.conf` set `proxy_pass http://backend:5000` (container port stays 5000). |
+| “Connection refused” on port 80 | Security Group must allow inbound HTTP (80). Run `sudo docker compose ps` and `sudo docker compose logs frontend`. |
+| Permission denied (docker API) | Use `sudo docker compose` for all Docker commands, or add your user to the docker group: `sudo usermod -aG docker $USER`, then log out and back in (or `newgrp docker`). |
+| Frontend container “Restarting” in `docker ps` | Port 80 may be in use. Check: `sudo ss -tlnp \| grep :80`. Stop the service using 80 (e.g. Apache: `sudo systemctl stop apache2`) or map frontend to another port (e.g. `8080:80` in `docker-compose.yml` and open `http://EC2_IP:8080`). View logs: `sudo docker logs taskflow-frontend-1`. |
+| Frontend loads but API fails | Ensure `CLIENT_URL` in `.env` uses `http://YOUR_EC2_PUBLIC_IP` (no trailing slash). Restart: `sudo docker compose down && sudo docker compose up -d`. |
+| Backend “MongoDB connection error” | Ensure `mongodb` container is running (`sudo docker compose ps`). Backend uses `MONGO_URI=mongodb://mongodb:27017/taskflow` in compose; no change needed unless you use external DB. |
+| Need to rebuild after code change | On EC2: `git pull`, then `sudo docker compose build --no-cache && sudo docker compose up -d`. |
 
 ---
 
-## Quick Reference – Commands on EC2
+## Quick Reference – Commands on EC2 (Ubuntu)
+
+Use `sudo` if your user is not in the `docker` group.
 
 ```bash
-cd ~/eman
+cd ~/taskflow   # or ~/eman
+
+# If port 5000 is in use: find and stop the process
+sudo lsof -i :5000
+sudo kill PID
 
 # Start
-docker compose up -d
+sudo docker compose up -d
 
 # Stop
-docker compose down
+sudo docker compose down
 
 # Rebuild and start
-docker compose build --no-cache && docker compose up -d
+sudo docker compose build --no-cache && sudo docker compose up -d
 
 # Logs
-docker compose logs -f
-docker compose logs backend
-docker compose logs frontend
+sudo docker compose logs -f
+sudo docker compose logs backend
+sudo docker compose logs frontend
 
 # Seed data
-docker compose exec backend node scripts/seed.js
+sudo docker compose exec backend node scripts/seed.js
 ```
 
 ---
